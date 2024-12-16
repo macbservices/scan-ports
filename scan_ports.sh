@@ -1,33 +1,53 @@
 #!/bin/bash
 
-echo "=== Varredura de Portas Abertas e Serviços na VPS ==="
+echo "=== Varredura de Serviços Instalados na VPS ==="
 echo
 
-# Verifica se o comando ss está disponível
-if ! command -v ss &> /dev/null; then
-  echo "O comando 'ss' não está instalado. Por favor, instale-o com:"
-  echo "sudo apt install iproute2"
-  exit 1
-fi
+# Diretórios padrão do Ubuntu 20.04 (para exclusão da análise)
+UBUNTU_DEFAULTS=(
+  "/bin" "/boot" "/dev" "/etc" "/home" "/lib" "/lib32" "/lib64" "/libx32"
+  "/media" "/mnt" "/opt" "/proc" "/root" "/run" "/sbin" "/srv" "/sys"
+  "/tmp" "/usr" "/var" "/swapfile"
+)
 
-# Cabeçalho da tabela
-printf "%-10s %-20s %-20s\n" "PORTA" "ESTADO" "SERVIÇO/PROCESSO"
-echo "============================================================"
+# Função para verificar se um diretório está nos padrões do Ubuntu
+is_default_dir() {
+  for dir in "${UBUNTU_DEFAULTS[@]}"; do
+    if [[ "$1" == "$dir" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
-# Lista todas as portas abertas e os serviços associados
-ss -tuln | awk 'NR>1 {print $5 " " $1}' | while read line; do
-  # Extrai porta e protocolo
-  PORT=$(echo $line | awk -F':' '{print $NF}')
-  PROTOCOL=$(echo $line | awk '{print $2}')
-  
-  # Obtém o nome do processo pelo PID que usa a porta
-  SERVICE=$(sudo lsof -i :$PORT -sTCP:LISTEN -nP 2>/dev/null | awk 'NR==2 {print $1}')
-  
-  # Se não houver um serviço identificado, retorna 'Desconhecido'
-  if [ -z "$SERVICE" ]; then
-    SERVICE="Desconhecido"
+# Função para consultar informações sobre um serviço na internet
+check_service_info() {
+  local service="$1"
+  echo "Consultando informações para o serviço: $service"
+  curl -s "https://api.github.com/search/repositories?q=$service" | jq '.items[] | .html_url' | head -n 5
+}
+
+# Varredura dos diretórios
+echo "Identificando serviços instalados (excluindo arquivos padrão do Ubuntu)..."
+SERVICES=()
+for dir in /*; do
+  if ! is_default_dir "$dir"; then
+    SERVICES+=("$dir")
   fi
-  
-  # Imprime o resultado
-  printf "%-10s %-20s %-20s\n" "$PORT/$PROTOCOL" "ABERTA" "$SERVICE"
+done
+
+# Exibir resultados preliminares
+echo
+echo "=== Serviços Identificados ==="
+for service in "${SERVICES[@]}"; do
+  echo "Possível Serviço: $(basename "$service")"
+  check_service_info "$(basename "$service")"
+done
+
+# Consulta de portas usadas pelos serviços
+echo
+echo "=== Portas Usadas pelos Serviços ==="
+for service in "${SERVICES[@]}"; do
+  echo "Portas usadas pelo serviço $(basename "$service"):"
+  sudo lsof -i -nP | grep "$(basename "$service")"
 done
